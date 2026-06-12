@@ -18,12 +18,35 @@ class TodoApp:
     PRIORITY_OPTIONS = ["🟢 低", "🟡 中", "🔴 高"]
     PRIORITY_TAG = {"🔴": "high", "🟡": "medium", "🟢": "low"}
 
+    # ---------- 设计系统 / 调色板 ----------
+    BG = "#F1F5F9"            # 内容区背景 (slate-100)
+    CARD = "#FFFFFF"
+    BORDER = "#E5E7EB"
+    TEXT = "#0F172A"          # 主文字 (slate-900)
+    MUTED = "#64748B"         # 次要文字 (slate-500)
+
+    SIDEBAR = "#1E1B4B"       # 侧边栏深色 (indigo-950)
+    SIDEBAR_TEXT = "#C7D2FE"  # 侧边栏文字 (indigo-200)
+    SIDEBAR_HOVER = "#312E81" # indigo-900
+    SIDEBAR_ACTIVE = "#4F46E5"# indigo-600
+
+    ACCENT = "#4F46E5"        # 主题色 indigo-600
+    ACCENT_DK = "#4338CA"
+    SUCCESS = "#10B981"
+    SUCCESS_DK = "#059669"
+    DANGER = "#EF4444"
+    DANGER_DK = "#DC2626"
+
+    STRIPE = "#F8FAFC"        # 斑马纹
+
+    FONT = "Microsoft YaHei UI"
+
     def __init__(self, root):
         self.root = root
-        self.root.title("✨ 高级待办计划与健康助手")
-        self.root.geometry("950x720")
-        self.root.minsize(820, 640)
-        self.root.configure(bg="#F3F4F6")
+        self.root.title("✨ 待办计划与健康助手")
+        self.root.geometry("1040x740")
+        self.root.minsize(940, 660)
+        self.root.configure(bg=self.BG)
 
         try:
             self.root.iconbitmap("todo_icon.ico")
@@ -38,7 +61,6 @@ class TodoApp:
         self.improvement_tasks = self.load_improvement_tasks()
         self.improvement_completed_shown = False
 
-        # iid -> 原始任务字符串 的映射，避免用显示文本反查数据
         self.daily_items = {}
         self.improvement_items = {}
 
@@ -52,7 +74,11 @@ class TodoApp:
         self.today_focus_minutes = 0
         self.completed_pomodoros = 0
 
-        # ---------- 状态栏定时器 ----------
+        # ---------- 导航 ----------
+        self.pages = {}
+        self.nav_buttons = {}
+        self.active_page = None
+
         self._status_after_id = None
 
         self.create_styles()
@@ -61,6 +87,7 @@ class TodoApp:
 
         self.update_task_display()
         self.update_improvement_display()
+        self.show_page("daily")
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -72,266 +99,383 @@ class TodoApp:
         except Exception:
             pass
 
-        default_font = ("Microsoft YaHei UI", 10)
-        self.style.configure(".", background="#F3F4F6", font=default_font, foreground="#1F2937")
-        self.style.configure("TFrame", background="#F3F4F6")
+        base_font = (self.FONT, 10)
+        self.style.configure(".", background=self.CARD, foreground=self.TEXT, font=base_font)
 
-        self.style.configure("Card.TFrame", background="#FFFFFF", relief="flat")
-        self.style.configure("Card.TLabel", background="#FFFFFF", foreground="#1F2937")
-        self.style.configure("Card.TCheckbutton", background="#FFFFFF")
+        # 主按钮
+        self.style.configure("Accent.TButton", font=(self.FONT, 10, "bold"), padding=(14, 8),
+                             background=self.ACCENT, foreground="white", borderwidth=0, focusthickness=0)
+        self.style.map("Accent.TButton",
+                       background=[("active", self.ACCENT_DK), ("disabled", "#A5B4FC")])
 
-        self.style.configure("TNotebook", background="#F3F4F6", borderwidth=0)
-        self.style.configure("TNotebook.Tab", font=("Microsoft YaHei UI", 11, "bold"),
-                             padding=[20, 8], background="#E5E7EB", foreground="#4B5563", borderwidth=0)
-        self.style.map("TNotebook.Tab",
-                       background=[("selected", "#FFFFFF")],
-                       foreground=[("selected", "#2563EB")],
-                       expand=[("selected", [0, 0, 0, 2])])
+        self.style.configure("Success.TButton", font=(self.FONT, 10, "bold"), padding=(14, 8),
+                             background=self.SUCCESS, foreground="white", borderwidth=0, focusthickness=0)
+        self.style.map("Success.TButton",
+                       background=[("active", self.SUCCESS_DK), ("disabled", "#9CA3AF")])
 
-        self.style.configure("TButton", font=("Microsoft YaHei UI", 10), padding=6,
-                             background="#2563EB", foreground="white", borderwidth=0, focusthickness=0)
-        self.style.map("TButton", background=[("active", "#1D4ED8"), ("disabled", "#9CA3AF")])
+        self.style.configure("Danger.TButton", font=(self.FONT, 10, "bold"), padding=(14, 8),
+                             background=self.DANGER, foreground="white", borderwidth=0, focusthickness=0)
+        self.style.map("Danger.TButton",
+                       background=[("active", self.DANGER_DK), ("disabled", "#9CA3AF")])
 
-        self.style.configure("Success.TButton", background="#10B981")
-        self.style.map("Success.TButton", background=[("active", "#059669"), ("disabled", "#9CA3AF")])
+        # 次要 / 幽灵按钮
+        self.style.configure("Ghost.TButton", font=(self.FONT, 10), padding=(12, 7),
+                             background="#EEF2FF", foreground="#4338CA", borderwidth=0, focusthickness=0)
+        self.style.map("Ghost.TButton",
+                       background=[("active", "#E0E7FF")])
 
-        self.style.configure("Danger.TButton", background="#EF4444")
-        self.style.map("Danger.TButton", background=[("active", "#DC2626"), ("disabled", "#9CA3AF")])
+        # 输入框 / 下拉框
+        self.style.configure("TEntry", padding=8, relief="flat",
+                             fieldbackground="#FFFFFF", bordercolor=self.BORDER, borderwidth=1)
+        self.style.map("TEntry", bordercolor=[("focus", self.ACCENT)])
+        self.style.configure("TCombobox", padding=6, relief="flat",
+                             fieldbackground="#FFFFFF", bordercolor=self.BORDER, borderwidth=1)
+        self.style.map("TCombobox", bordercolor=[("focus", self.ACCENT)])
 
-        self.style.configure("TEntry", padding=6, fieldbackground="#FFFFFF", bordercolor="#D1D5DB")
-        self.style.configure("TCombobox", padding=6, fieldbackground="#FFFFFF", bordercolor="#D1D5DB")
+        # Treeview
+        self.style.configure("Treeview", rowheight=38, font=(self.FONT, 10),
+                             fieldbackground="#FFFFFF", background="#FFFFFF",
+                             foreground=self.TEXT, borderwidth=0)
+        self.style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # 去掉外边框
+        self.style.configure("Treeview.Heading", font=(self.FONT, 10, "bold"),
+                             background="#F8FAFC", foreground="#475569",
+                             relief="flat", borderwidth=0, padding=(8, 8))
+        self.style.map("Treeview.Heading", background=[("active", "#EEF2FF")])
+        self.style.map("Treeview",
+                       background=[("selected", "#E0E7FF")],
+                       foreground=[("selected", "#3730A3")])
 
-        self.style.configure("Title.TLabel", font=("Microsoft YaHei UI", 14, "bold"),
-                             background="#F3F4F6", foreground="#111827")
-        self.style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 11, "bold"),
-                             background="#FFFFFF", foreground="#2563EB")
-        self.style.configure("Muted.TLabel", foreground="#6B7280", background="#FFFFFF")
+        # 滚动条
+        self.style.configure("Vertical.TScrollbar", background="#CBD5E1", troughcolor="#F1F5F9",
+                             borderwidth=0, arrowcolor="#64748B")
 
-        self.style.configure("Treeview", rowheight=34, fieldbackground="#FFFFFF", background="#FFFFFF",
-                             borderwidth=0, font=default_font)
-        self.style.configure("Treeview.Heading", font=("Microsoft YaHei UI", 10, "bold"),
-                             background="#F9FAFB", foreground="#374151", borderwidth=0)
-        self.style.map("Treeview", background=[("selected", "#DBEAFE")], foreground=[("selected", "#1E3A8A")])
-
-        self.style.configure("Custom.Horizontal.TProgressbar",
-                             background="#2563EB", troughcolor="#E5E7EB", thickness=12, borderwidth=0)
+        # 进度条
+        self.style.configure("Accent.Horizontal.TProgressbar",
+                             background=self.ACCENT, troughcolor="#E2E8F0", thickness=14, borderwidth=0)
         self.style.configure("Green.Horizontal.TProgressbar",
-                             background="#10B981", troughcolor="#E5E7EB", thickness=12, borderwidth=0)
-        self.style.configure("Break.Horizontal.TProgressbar",
-                             background="#10B981", troughcolor="#E5E7EB", thickness=12, borderwidth=0)
+                             background=self.SUCCESS, troughcolor="#E2E8F0", thickness=14, borderwidth=0)
 
-    # ================= 界面 =================
+    # ---------- 小组件工厂 ----------
+    def _card(self, parent, padx=18, pady=18):
+        """返回 (外框, 内容框)。外框带 1px 边框，内容框已加内边距。"""
+        outer = tk.Frame(parent, bg=self.CARD, highlightbackground=self.BORDER,
+                         highlightcolor=self.BORDER, highlightthickness=1, bd=0)
+        inner = tk.Frame(outer, bg=self.CARD)
+        inner.pack(fill="both", expand=True, padx=padx, pady=pady)
+        return outer, inner
+
+    def _label(self, parent, text, *, fg=None, size=10, bold=False, bg=None):
+        return tk.Label(parent, text=text, bg=bg or self.CARD, fg=fg or self.TEXT,
+                        font=(self.FONT, size, "bold" if bold else "normal"))
+
+    def _section_title(self, parent, text):
+        return self._label(parent, text, fg=self.ACCENT, size=11, bold=True)
+
+    # ================= 界面骨架 =================
     def create_widgets(self):
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill="both", expand=True, padx=15, pady=15)
+        # ---------- 侧边栏 ----------
+        sidebar = tk.Frame(self.root, bg=self.SIDEBAR, width=216)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        self.sidebar = sidebar
 
-        self.notebook = ttk.Notebook(main_frame)
-        self.daily_tab = ttk.Frame(self.notebook, style="TFrame")
-        self.improvement_tab = ttk.Frame(self.notebook, style="TFrame")
-        self.pomodoro_tab = ttk.Frame(self.notebook, style="TFrame")
+        logo = tk.Frame(sidebar, bg=self.SIDEBAR)
+        logo.pack(fill="x", pady=(26, 8), padx=20)
+        tk.Label(logo, text="✨ 待办助手", bg=self.SIDEBAR, fg="white",
+                 font=(self.FONT, 15, "bold")).pack(anchor="w")
+        tk.Label(logo, text="Planner & Focus", bg=self.SIDEBAR, fg="#818CF8",
+                 font=("Segoe UI", 9)).pack(anchor="w")
 
-        self.notebook.add(self.daily_tab, text='  📅 每日待办  ')
-        self.notebook.add(self.improvement_tab, text='  📈 长期计划  ')
-        self.notebook.add(self.pomodoro_tab, text='  ⏱️ 番茄时钟  ')
-        self.notebook.pack(expand=True, fill="both")
+        tk.Frame(sidebar, bg="#312E81", height=1).pack(fill="x", padx=18, pady=(14, 10))
+
+        self._add_nav("daily", "📅   每日待办")
+        self._add_nav("improvement", "📈   长期计划")
+        self._add_nav("pomodoro", "⏱️   番茄时钟")
+
+        # 侧边栏底部时钟
+        clock_box = tk.Frame(sidebar, bg=self.SIDEBAR)
+        clock_box.pack(side="bottom", fill="x", padx=20, pady=18)
+        self.clock_label = tk.Label(clock_box, text="", bg=self.SIDEBAR, fg="#A5B4FC",
+                                    font=("Consolas", 9))
+        self.clock_label.pack(anchor="w")
+
+        # ---------- 内容区 ----------
+        content = tk.Frame(self.root, bg=self.BG)
+        content.pack(side="left", fill="both", expand=True)
+
+        self.page_container = tk.Frame(content, bg=self.BG)
+        self.page_container.pack(fill="both", expand=True)
+        self.page_container.grid_rowconfigure(0, weight=1)
+        self.page_container.grid_columnconfigure(0, weight=1)
+
+        for key in ("daily", "improvement", "pomodoro"):
+            frame = tk.Frame(self.page_container, bg=self.BG)
+            frame.grid(row=0, column=0, sticky="nsew")
+            self.pages[key] = frame
 
         self.create_daily_tab()
         self.create_improvement_tab()
         self.create_pomodoro_tab()
 
-        status_frame = ttk.Frame(main_frame)
-        status_frame.pack(fill="x", pady=(10, 0))
-        self.status_label = ttk.Label(status_frame, text="就绪",
-                                       font=("Microsoft YaHei UI", 9), foreground="#6B7280")
-        self.status_label.pack(side="left")
-        self.clock_label = ttk.Label(status_frame, text="",
-                                      font=("Microsoft YaHei UI", 9), foreground="#6B7280")
-        self.clock_label.pack(side="right")
+        # ---------- 底部状态栏 ----------
+        status_bar = tk.Frame(content, bg="#FFFFFF", highlightbackground=self.BORDER,
+                              highlightthickness=1)
+        status_bar.pack(fill="x", side="bottom")
+        self.status_label = tk.Label(status_bar, text="就绪", bg="#FFFFFF", fg=self.MUTED,
+                                     font=(self.FONT, 9))
+        self.status_label.pack(side="left", padx=16, pady=6)
+
         self._tick_clock()
 
+    def _add_nav(self, key, text):
+        btn = tk.Label(self.sidebar, text=text, bg=self.SIDEBAR, fg=self.SIDEBAR_TEXT,
+                       font=(self.FONT, 11), anchor="w", padx=24, pady=13, cursor="hand2")
+        btn.pack(fill="x", padx=10, pady=2)
+        btn.bind("<Button-1>", lambda e: self.show_page(key))
+        btn.bind("<Enter>", lambda e: self._nav_hover(key, True))
+        btn.bind("<Leave>", lambda e: self._nav_hover(key, False))
+        self.nav_buttons[key] = btn
+
+    def _nav_hover(self, key, entering):
+        if key == self.active_page:
+            return
+        self.nav_buttons[key].config(bg=self.SIDEBAR_HOVER if entering else self.SIDEBAR)
+
+    def show_page(self, key):
+        self.active_page = key
+        self.pages[key].tkraise()
+        for k, btn in self.nav_buttons.items():
+            if k == key:
+                btn.config(bg=self.SIDEBAR_ACTIVE, fg="white", font=(self.FONT, 11, "bold"))
+            else:
+                btn.config(bg=self.SIDEBAR, fg=self.SIDEBAR_TEXT, font=(self.FONT, 11))
+
+    def _page_header(self, page, title, subtitle):
+        header = tk.Frame(page, bg=self.BG)
+        header.pack(fill="x", padx=26, pady=(22, 12))
+        tk.Label(header, text=title, bg=self.BG, fg=self.TEXT,
+                 font=(self.FONT, 18, "bold")).pack(anchor="w")
+        tk.Label(header, text=subtitle, bg=self.BG, fg=self.MUTED,
+                 font=(self.FONT, 10)).pack(anchor="w", pady=(2, 0))
+        return header
+
+    # ================= 每日待办页 =================
     def create_daily_tab(self):
-        top_frame = ttk.Frame(self.daily_tab)
-        top_frame.pack(fill="x", padx=10, pady=10)
+        page = self.pages["daily"]
+        self._page_header(page, "📅 每日待办", "管理今天的任务，未完成的会自动结转到今天")
 
-        cal_card = ttk.Frame(top_frame, style="Card.TFrame", padding=15)
-        cal_card.pack(side="left", fill="y", padx=(0, 15))
-        ttk.Label(cal_card, text="📅 选择日期", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 10))
+        body = tk.Frame(page, bg=self.BG)
+        body.pack(fill="both", expand=True, padx=26, pady=(0, 14))
 
-        self.calendar = Calendar(cal_card, selectmode='day',
-                                 year=self.current_date.year, month=self.current_date.month,
-                                 day=self.current_date.day,
-                                 background="#2563EB", foreground="white", bordercolor="#E5E7EB",
-                                 headersbackground="#F3F4F6", headersforeground="#1F2937",
-                                 normalbackground="#FFFFFF", weekendbackground="#F9FAFB",
-                                 othermonthbackground="#F9FAFB", othermonthforeground="#9CA3AF",
-                                 font=("Microsoft YaHei UI", 9))
+        top = tk.Frame(body, bg=self.BG)
+        top.pack(fill="x")
+
+        # 日历卡片
+        cal_outer, cal_card = self._card(top)
+        cal_outer.pack(side="left", fill="y", padx=(0, 16))
+        self._section_title(cal_card, "选择日期").pack(anchor="w", pady=(0, 10))
+        self.calendar = Calendar(
+            cal_card, selectmode='day',
+            year=self.current_date.year, month=self.current_date.month, day=self.current_date.day,
+            font=(self.FONT, 9), showweeknumbers=False, firstweekday="monday",
+            background=self.ACCENT, foreground="white", bordercolor="#FFFFFF",
+            headersbackground="#EEF2FF", headersforeground="#4338CA",
+            normalbackground="#FFFFFF", normalforeground=self.TEXT,
+            weekendbackground="#FFFFFF", weekendforeground=self.TEXT,
+            othermonthbackground="#F8FAFC", othermonthforeground="#CBD5E1",
+            othermonthwebackground="#F8FAFC", othermonthweforeground="#CBD5E1",
+            selectbackground=self.ACCENT, selectforeground="white")
         self.calendar.pack()
         self.calendar.bind("<<CalendarSelected>>", self.on_date_change)
+        ttk.Button(cal_card, text="↩ 回到今天", style="Ghost.TButton",
+                   command=self.go_to_today).pack(fill="x", pady=(12, 0))
 
-        today_btn = ttk.Button(cal_card, text="↩ 回到今天", command=self.go_to_today)
-        today_btn.pack(fill="x", pady=(10, 0))
+        # 输入卡片
+        in_outer, in_card = self._card(top)
+        in_outer.pack(side="left", fill="both", expand=True)
+        self._section_title(in_card, "添加新任务").pack(anchor="w", pady=(0, 12))
 
-        input_card = ttk.Frame(top_frame, style="Card.TFrame", padding=15)
-        input_card.pack(side="left", fill="both", expand=True)
-        ttk.Label(input_card, text="➕ 添加新任务", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 10))
-
-        entry_row = ttk.Frame(input_card, style="Card.TFrame")
-        entry_row.pack(fill="x", pady=(0, 10))
-
-        self.priority_combo = ttk.Combobox(entry_row, values=self.PRIORITY_OPTIONS, width=8, state="readonly")
+        row = tk.Frame(in_card, bg=self.CARD)
+        row.pack(fill="x")
+        self.priority_combo = ttk.Combobox(row, values=self.PRIORITY_OPTIONS, width=7, state="readonly")
         self.priority_combo.set("🟡 中")
         self.priority_combo.pack(side="left", padx=(0, 10))
-
-        self.todo_entry = ttk.Entry(entry_row, font=("Microsoft YaHei UI", 11))
+        self.todo_entry = ttk.Entry(row, font=(self.FONT, 11))
         self.todo_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.todo_entry.bind("<Return>", lambda e: self.add_task())
+        ttk.Button(row, text="＋ 添加", style="Success.TButton", command=self.add_task).pack(side="right")
 
-        ttk.Button(entry_row, text="添加任务", style="Success.TButton", command=self.add_task).pack(side="right")
+        self.daily_stats_label = self._label(in_card, "今日统计：加载中...", fg=self.MUTED)
+        self.daily_stats_label.pack(anchor="w", pady=(16, 0))
 
-        self.daily_stats_label = ttk.Label(input_card, text="今日统计：加载中...", style="Muted.TLabel")
-        self.daily_stats_label.pack(anchor="w")
+        # 提示
+        self._label(in_card,
+                    "提示：双击任务切换完成状态，右键可编辑或删除",
+                    fg="#94A3B8", size=9).pack(anchor="w", pady=(10, 0))
 
-        list_card = ttk.Frame(self.daily_tab, style="Card.TFrame", padding=10)
-        list_card.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        # 任务列表卡片
+        list_outer, list_card = self._card(body, padx=14, pady=14)
+        list_outer.pack(fill="both", expand=True, pady=(16, 0))
 
-        self.task_tree = ttk.Treeview(list_card, columns=("status", "task"),
+        bar = tk.Frame(list_card, bg=self.CARD)
+        bar.pack(fill="x", pady=(0, 10))
+        self._label(bar, "📋 任务列表", size=12, bold=True).pack(side="left")
+        self.daily_view_btn = ttk.Button(bar, text="👁 查看已完成", style="Ghost.TButton",
+                                          command=self.toggle_task_view)
+        self.daily_view_btn.pack(side="right")
+        ttk.Button(bar, text="📊 统计", style="Ghost.TButton",
+                   command=self.show_stats).pack(side="right", padx=(0, 8))
+        ttk.Button(bar, text="🧹 清空已完成", style="Danger.TButton",
+                   command=self.clear_completed_tasks).pack(side="right", padx=(0, 8))
+
+        tree_wrap = tk.Frame(list_card, bg=self.CARD)
+        tree_wrap.pack(fill="both", expand=True)
+        self.task_tree = ttk.Treeview(tree_wrap, columns=("status", "task"),
                                       show="headings", selectmode="browse")
         self.task_tree.heading("status", text="状态")
-        self.task_tree.heading("task", text="📋 任务列表 (双击切换状态 / 右键更多操作)")
-        self.task_tree.column("status", width=70, anchor="center", stretch=False)
+        self.task_tree.heading("task", text="任务内容")
+        self.task_tree.column("status", width=80, anchor="center", stretch=False)
         self.task_tree.column("task", width=560, anchor="w")
+        self._config_tree_tags(self.task_tree)
 
-        self.task_tree.tag_configure('high', foreground="#DC2626")
-        self.task_tree.tag_configure('medium', foreground="#D97706")
-        self.task_tree.tag_configure('low', foreground="#059669")
-        self.task_tree.tag_configure('done', foreground="#9CA3AF")
-        self.task_tree.tag_configure('empty', foreground="#9CA3AF")
-
-        scrollbar = ttk.Scrollbar(list_card, orient="vertical", command=self.task_tree.yview)
-        self.task_tree.configure(yscrollcommand=scrollbar.set)
+        sb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.task_tree.yview,
+                           style="Vertical.TScrollbar")
+        self.task_tree.configure(yscrollcommand=sb.set)
         self.task_tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
+        sb.pack(side="right", fill="y")
         self.task_tree.bind("<Double-1>", self.toggle_task_status)
         self.task_tree.bind("<Button-3>", self.show_daily_context_menu)
 
-        btn_frame = ttk.Frame(self.daily_tab)
-        btn_frame.pack(fill="x", padx=10, pady=(0, 5))
-        self.daily_view_btn = ttk.Button(btn_frame, text="👁 查看已完成", command=self.toggle_task_view)
-        self.daily_view_btn.pack(side="left", padx=(0, 5))
-        ttk.Button(btn_frame, text="清空已完成", style="Danger.TButton",
-                   command=self.clear_completed_tasks).pack(side="left")
-        ttk.Button(btn_frame, text="📊 详细统计", command=self.show_stats).pack(side="right")
-
+    # ================= 长期计划页 =================
     def create_improvement_tab(self):
-        prog_card = ttk.Frame(self.improvement_tab, style="Card.TFrame", padding=15)
-        prog_card.pack(fill="x", padx=10, pady=10)
-        ttk.Label(prog_card, text="🎯 长期目标整体进度", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 10))
+        page = self.pages["improvement"]
+        self._page_header(page, "📈 长期计划", "追踪你的长期目标与整体进度")
 
+        body = tk.Frame(page, bg=self.BG)
+        body.pack(fill="both", expand=True, padx=26, pady=(0, 14))
+
+        # 进度卡片
+        prog_outer, prog_card = self._card(body)
+        prog_outer.pack(fill="x")
+        head = tk.Frame(prog_card, bg=self.CARD)
+        head.pack(fill="x", pady=(0, 12))
+        self._section_title(head, "🎯 整体进度").pack(side="left")
+        self.improvement_prog_label = self._label(head, "0%", fg=self.MUTED, size=11, bold=True)
+        self.improvement_prog_label.pack(side="right")
         self.improvement_progress = ttk.Progressbar(prog_card, style="Green.Horizontal.TProgressbar",
                                                      mode="determinate")
         self.improvement_progress.pack(fill="x")
-        self.improvement_prog_label = ttk.Label(prog_card, text="0%", style="Muted.TLabel")
-        self.improvement_prog_label.pack(anchor="e", pady=(5, 0))
 
-        input_card = ttk.Frame(self.improvement_tab, style="Card.TFrame", padding=15)
-        input_card.pack(fill="x", padx=10, pady=(0, 10))
-        ttk.Label(input_card, text="➕ 添加长期计划", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 10))
-
-        entry_row = ttk.Frame(input_card, style="Card.TFrame")
-        entry_row.pack(fill="x")
-
-        self.imp_priority_combo = ttk.Combobox(entry_row, values=self.PRIORITY_OPTIONS, width=8, state="readonly")
+        # 输入卡片
+        in_outer, in_card = self._card(body)
+        in_outer.pack(fill="x", pady=(16, 0))
+        self._section_title(in_card, "添加长期计划").pack(anchor="w", pady=(0, 12))
+        row = tk.Frame(in_card, bg=self.CARD)
+        row.pack(fill="x")
+        self.imp_priority_combo = ttk.Combobox(row, values=self.PRIORITY_OPTIONS, width=7, state="readonly")
         self.imp_priority_combo.set("🟡 中")
         self.imp_priority_combo.pack(side="left", padx=(0, 10))
-
-        self.improvement_entry = ttk.Entry(entry_row, font=("Microsoft YaHei UI", 11))
+        self.improvement_entry = ttk.Entry(row, font=(self.FONT, 11))
         self.improvement_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.improvement_entry.bind("<Return>", lambda e: self.add_improvement_task())
-
-        ttk.Button(entry_row, text="添加计划", style="Success.TButton",
+        ttk.Button(row, text="＋ 添加", style="Success.TButton",
                    command=self.add_improvement_task).pack(side="right")
 
-        list_card = ttk.Frame(self.improvement_tab, style="Card.TFrame", padding=10)
-        list_card.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        # 列表卡片
+        list_outer, list_card = self._card(body, padx=14, pady=14)
+        list_outer.pack(fill="both", expand=True, pady=(16, 0))
+        bar = tk.Frame(list_card, bg=self.CARD)
+        bar.pack(fill="x", pady=(0, 10))
+        self._label(bar, "🚀 计划列表", size=12, bold=True).pack(side="left")
+        self.imp_view_btn = ttk.Button(bar, text="👁 查看已完成", style="Ghost.TButton",
+                                       command=self.toggle_improvement_view)
+        self.imp_view_btn.pack(side="right")
 
-        self.improvement_tree = ttk.Treeview(list_card, columns=("status", "task"),
+        tree_wrap = tk.Frame(list_card, bg=self.CARD)
+        tree_wrap.pack(fill="both", expand=True)
+        self.improvement_tree = ttk.Treeview(tree_wrap, columns=("status", "task"),
                                              show="headings", selectmode="browse")
         self.improvement_tree.heading("status", text="状态")
-        self.improvement_tree.heading("task", text="🚀 长期计划列表 (双击切换状态 / 右键更多操作)")
-        self.improvement_tree.column("status", width=70, anchor="center", stretch=False)
+        self.improvement_tree.heading("task", text="计划内容")
+        self.improvement_tree.column("status", width=80, anchor="center", stretch=False)
         self.improvement_tree.column("task", width=560, anchor="w")
+        self._config_tree_tags(self.improvement_tree)
 
-        self.improvement_tree.tag_configure('high', foreground="#DC2626")
-        self.improvement_tree.tag_configure('medium', foreground="#D97706")
-        self.improvement_tree.tag_configure('low', foreground="#059669")
-        self.improvement_tree.tag_configure('done', foreground="#9CA3AF")
-        self.improvement_tree.tag_configure('empty', foreground="#9CA3AF")
-
-        scrollbar = ttk.Scrollbar(list_card, orient="vertical", command=self.improvement_tree.yview)
-        self.improvement_tree.configure(yscrollcommand=scrollbar.set)
+        sb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.improvement_tree.yview,
+                           style="Vertical.TScrollbar")
+        self.improvement_tree.configure(yscrollcommand=sb.set)
         self.improvement_tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
+        sb.pack(side="right", fill="y")
         self.improvement_tree.bind("<Double-1>", self.toggle_improvement_status)
         self.improvement_tree.bind("<Button-3>", self.show_imp_context_menu)
 
-        btn_frame = ttk.Frame(self.improvement_tab)
-        btn_frame.pack(fill="x", padx=10, pady=(0, 5))
-        self.imp_view_btn = ttk.Button(btn_frame, text="👁 查看已完成", command=self.toggle_improvement_view)
-        self.imp_view_btn.pack(side="left")
+    def _config_tree_tags(self, tree):
+        tree.tag_configure('high', foreground=self.DANGER)
+        tree.tag_configure('medium', foreground="#D97706")
+        tree.tag_configure('low', foreground=self.SUCCESS_DK)
+        tree.tag_configure('done', foreground="#94A3B8")
+        tree.tag_configure('empty', foreground="#94A3B8")
+        tree.tag_configure('oddrow', background="#FFFFFF")
+        tree.tag_configure('evenrow', background=self.STRIPE)
 
+    # ================= 番茄时钟页 =================
     def create_pomodoro_tab(self):
-        main_frame = ttk.Frame(self.pomodoro_tab)
-        main_frame.pack(fill="both", expand=True, padx=40, pady=20)
+        page = self.pages["pomodoro"]
+        self._page_header(page, "⏱️ 番茄时钟", "专注工作，劳逸结合")
 
-        ttk.Label(main_frame, text="🍅 番茄专注时钟", font=("Microsoft YaHei UI", 18, "bold"),
-                  foreground="#2563EB").pack(pady=(20, 10))
+        wrap = tk.Frame(page, bg=self.BG)
+        wrap.pack(fill="both", expand=True, padx=26, pady=(0, 20))
 
-        self.pomodoro_time_display = ttk.Label(main_frame, text="25:00",
-                                               font=("Consolas", 64, "bold"), foreground="#1F2937")
-        self.pomodoro_time_display.pack(pady=20)
+        # 中央计时卡片
+        timer_outer, timer_card = self._card(wrap, padx=40, pady=30)
+        timer_outer.pack(pady=(6, 0))
 
-        self.pomodoro_status_label = ttk.Label(main_frame, text="准备开始工作",
-                                               font=("Microsoft YaHei UI", 12), foreground="#6B7280")
-        self.pomodoro_status_label.pack(pady=(0, 20))
+        self.pomodoro_status_label = self._label(timer_card, "准备开始工作",
+                                                 fg=self.MUTED, size=12, bold=True)
+        self.pomodoro_status_label.pack(pady=(0, 8))
+
+        self.pomodoro_time_display = tk.Label(timer_card, text="25:00", bg=self.CARD,
+                                              fg=self.TEXT, font=("Consolas", 72, "bold"))
+        self.pomodoro_time_display.pack(pady=(0, 14))
 
         self.pomodoro_progress = tk.DoubleVar(value=100)
-        self.progress_bar = ttk.Progressbar(main_frame, variable=self.pomodoro_progress,
-                                            style="Custom.Horizontal.TProgressbar",
-                                            length=500, mode="determinate")
-        self.progress_bar.pack(pady=10, fill="x")
+        self.progress_bar = ttk.Progressbar(timer_card, variable=self.pomodoro_progress,
+                                            style="Accent.Horizontal.TProgressbar",
+                                            length=460, mode="determinate")
+        self.progress_bar.pack(pady=(0, 4))
 
-        settings_card = ttk.Frame(main_frame, style="Card.TFrame", padding=20)
-        settings_card.pack(pady=30)
+        # 控制按钮
+        btns = tk.Frame(timer_card, bg=self.CARD)
+        btns.pack(pady=(22, 0))
+        self.start_btn = ttk.Button(btns, text="▶ 开始专注", style="Success.TButton",
+                                    command=self.toggle_pomodoro, width=14)
+        self.start_btn.pack(side="left", padx=8)
+        self.stop_btn = ttk.Button(btns, text="⏹ 停止/重置", style="Danger.TButton",
+                                   command=self.stop_pomodoro, width=14)
+        self.stop_btn.pack(side="left", padx=8)
 
-        ttk.Label(settings_card, text="工作(分):", style="Card.TLabel").grid(row=0, column=0, padx=8, pady=5, sticky="e")
-        self.work_time_entry = ttk.Entry(settings_card, width=5, justify="center", font=("Consolas", 12))
+        # 设置卡片
+        set_outer, set_card = self._card(wrap)
+        set_outer.pack(pady=(18, 0))
+        self._section_title(set_card, "⚙️ 时长设置（分钟）").pack(anchor="w", pady=(0, 12))
+        grid = tk.Frame(set_card, bg=self.CARD)
+        grid.pack()
+        self._label(grid, "工作", fg=self.MUTED).grid(row=0, column=0, padx=(0, 6), pady=4, sticky="e")
+        self.work_time_entry = ttk.Entry(grid, width=5, justify="center", font=("Consolas", 12))
         self.work_time_entry.insert(0, "25")
-        self.work_time_entry.grid(row=0, column=1, padx=5, pady=5)
-
-        ttk.Label(settings_card, text="休息(分):", style="Card.TLabel").grid(row=0, column=2, padx=8, pady=5, sticky="e")
-        self.break_time_entry = ttk.Entry(settings_card, width=5, justify="center", font=("Consolas", 12))
+        self.work_time_entry.grid(row=0, column=1, padx=(0, 20), pady=4)
+        self._label(grid, "短休息", fg=self.MUTED).grid(row=0, column=2, padx=(0, 6), pady=4, sticky="e")
+        self.break_time_entry = ttk.Entry(grid, width=5, justify="center", font=("Consolas", 12))
         self.break_time_entry.insert(0, "5")
-        self.break_time_entry.grid(row=0, column=3, padx=5, pady=5)
-
-        ttk.Label(settings_card, text="长休息(分):", style="Card.TLabel").grid(row=0, column=4, padx=8, pady=5, sticky="e")
-        self.long_break_entry = ttk.Entry(settings_card, width=5, justify="center", font=("Consolas", 12))
+        self.break_time_entry.grid(row=0, column=3, padx=(0, 20), pady=4)
+        self._label(grid, "长休息", fg=self.MUTED).grid(row=0, column=4, padx=(0, 6), pady=4, sticky="e")
+        self.long_break_entry = ttk.Entry(grid, width=5, justify="center", font=("Consolas", 12))
         self.long_break_entry.insert(0, "15")
-        self.long_break_entry.grid(row=0, column=5, padx=5, pady=5)
+        self.long_break_entry.grid(row=0, column=5, pady=4)
 
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(pady=10)
-        self.start_btn = ttk.Button(btn_frame, text="▶ 开始专注", style="Success.TButton",
-                                    command=self.toggle_pomodoro, width=15)
-        self.start_btn.pack(side="left", padx=10)
-        self.stop_btn = ttk.Button(btn_frame, text="⏹ 停止/重置", style="Danger.TButton",
-                                   command=self.stop_pomodoro, width=15)
-        self.stop_btn.pack(side="left", padx=10)
-
-        self.focus_stats_label = ttk.Label(main_frame, text="今日已专注: 0 分钟  |  完成番茄: 0 个",
-                                            font=("Microsoft YaHei UI", 11), foreground="#10B981")
-        self.focus_stats_label.pack(pady=20)
+        self.focus_stats_label = self._label(wrap, "今日已专注: 0 分钟   |   完成番茄: 0 个",
+                                             fg=self.SUCCESS_DK, bg=self.BG, size=11, bold=True)
+        self.focus_stats_label.pack(pady=(20, 0))
 
     # ================= 数据持久化 =================
     def load_tasks(self):
@@ -412,7 +556,6 @@ class TodoApp:
         data["not_done"].append(task_str)
 
         self.todo_entry.delete(0, tk.END)
-        # 添加任务时如果在已完成视图，自动切回未完成
         if self.completed_tasks_shown:
             self.completed_tasks_shown = False
             self.daily_view_btn.config(text="👁 查看已完成")
@@ -517,9 +660,10 @@ class TodoApp:
             self.task_tree.insert("", "end", values=("", placeholder), tags=('empty',))
         else:
             status_icon = "✅" if self.completed_tasks_shown else "⏳"
-            for task in tasks:
+            for i, task in enumerate(tasks):
+                stripe = 'evenrow' if i % 2 else 'oddrow'
                 tag = self._priority_tag(task, self.completed_tasks_shown)
-                iid = self.task_tree.insert("", "end", values=(status_icon, task), tags=(tag,))
+                iid = self.task_tree.insert("", "end", values=(status_icon, task), tags=(tag, stripe))
                 self.daily_items[iid] = task
 
         data = self.todo_list.get(date_key, {})
@@ -623,9 +767,10 @@ class TodoApp:
             self.improvement_tree.insert("", "end", values=("", placeholder), tags=('empty',))
         else:
             status_icon = "✅" if self.improvement_completed_shown else "⏳"
-            for task in tasks:
+            for i, task in enumerate(tasks):
+                stripe = 'evenrow' if i % 2 else 'oddrow'
                 tag = self._priority_tag(task, self.improvement_completed_shown)
-                iid = self.improvement_tree.insert("", "end", values=(status_icon, task), tags=(tag,))
+                iid = self.improvement_tree.insert("", "end", values=(status_icon, task), tags=(tag, stripe))
                 self.improvement_items[iid] = task
 
         total = len(self.improvement_tasks["not_done"]) + len(self.improvement_tasks["done"])
@@ -659,7 +804,7 @@ class TodoApp:
             if not self.pomodoro_is_break:
                 if mins is None or mins <= 0:
                     raise ValueError
-                self.pomodoro_status_label.config(text="🔥 专注工作中...", foreground="#EF4444")
+                self.pomodoro_status_label.config(text="🔥 专注工作中...", fg=self.DANGER)
         except ValueError:
             messagebox.showerror("错误", "请输入有效的正整数分钟数！")
             return
@@ -668,10 +813,10 @@ class TodoApp:
             # 每 4 个番茄进入长休息
             if self.completed_pomodoros > 0 and self.completed_pomodoros % 4 == 0:
                 mins = self._read_minutes(self.long_break_entry, 15)
-                self.pomodoro_status_label.config(text="🌴 长休息时间...", foreground="#10B981")
+                self.pomodoro_status_label.config(text="🌴 长休息时间...", fg=self.SUCCESS_DK)
             else:
                 mins = self._read_minutes(self.break_time_entry, 5)
-                self.pomodoro_status_label.config(text="☕ 休息时间...", foreground="#10B981")
+                self.pomodoro_status_label.config(text="☕ 休息时间...", fg=self.SUCCESS_DK)
 
         self.pomodoro_total_time = mins * 60
         self.pomodoro_time_left = self.pomodoro_total_time
@@ -687,15 +832,15 @@ class TodoApp:
             self.root.after_cancel(self.pomodoro_after_id)
             self.pomodoro_after_id = None
         self.start_btn.config(text="▶ 继续")
-        self.pomodoro_status_label.config(text="⏸ 已暂停", foreground="#6B7280")
+        self.pomodoro_status_label.config(text="⏸ 已暂停", fg=self.MUTED)
 
     def resume_pomodoro(self):
         self.pomodoro_paused = False
         self.start_btn.config(text="⏸ 暂停")
         if self.pomodoro_is_break:
-            self.pomodoro_status_label.config(text="☕ 休息时间...", foreground="#10B981")
+            self.pomodoro_status_label.config(text="☕ 休息时间...", fg=self.SUCCESS_DK)
         else:
-            self.pomodoro_status_label.config(text="🔥 专注工作中...", foreground="#EF4444")
+            self.pomodoro_status_label.config(text="🔥 专注工作中...", fg=self.DANGER)
         self.run_pomodoro_tick()
 
     def run_pomodoro_tick(self):
@@ -724,7 +869,7 @@ class TodoApp:
             self.today_focus_minutes += self.pomodoro_total_time // 60
             self.completed_pomodoros += 1
             self.focus_stats_label.config(
-                text=f"今日已专注: {self.today_focus_minutes} 分钟  |  完成番茄: {self.completed_pomodoros} 个")
+                text=f"今日已专注: {self.today_focus_minutes} 分钟   |   完成番茄: {self.completed_pomodoros} 个")
             self.pomodoro_is_break = True
             self.show_notification("🍅 番茄钟结束", "工作完成！休息一下吧。")
             self.start_pomodoro()  # 自动进入休息
@@ -732,7 +877,7 @@ class TodoApp:
             self.pomodoro_is_break = False
             self.show_notification("☕ 休息结束", "精力恢复！开始下一个番茄钟吧。")
             self._reset_pomodoro_display()
-            self.pomodoro_status_label.config(text="准备开始工作", foreground="#6B7280")
+            self.pomodoro_status_label.config(text="准备开始工作", fg=self.MUTED)
 
     def stop_pomodoro(self):
         self.pomodoro_running = False
@@ -742,7 +887,7 @@ class TodoApp:
             self.root.after_cancel(self.pomodoro_after_id)
             self.pomodoro_after_id = None
         self._reset_pomodoro_display()
-        self.pomodoro_status_label.config(text="已停止", foreground="#6B7280")
+        self.pomodoro_status_label.config(text="已停止", fg=self.MUTED)
 
     def _reset_pomodoro_display(self):
         mins = self._read_minutes(self.work_time_entry, 25)
@@ -766,13 +911,13 @@ class TodoApp:
 
     # ================= 右键菜单与辅助 =================
     def create_context_menus(self):
-        self.daily_menu = tk.Menu(self.root, tearoff=0, font=("Microsoft YaHei UI", 10))
+        self.daily_menu = tk.Menu(self.root, tearoff=0, font=(self.FONT, 10))
         self.daily_menu.add_command(label="✅ 完成 / 🔄 恢复", command=self.toggle_task_status)
         self.daily_menu.add_command(label="✏️ 编辑任务", command=self.edit_task)
         self.daily_menu.add_separator()
         self.daily_menu.add_command(label="❌ 删除任务", command=self.delete_task)
 
-        self.imp_menu = tk.Menu(self.root, tearoff=0, font=("Microsoft YaHei UI", 10))
+        self.imp_menu = tk.Menu(self.root, tearoff=0, font=(self.FONT, 10))
         self.imp_menu.add_command(label="✅ 完成 / 🔄 恢复", command=self.toggle_improvement_status)
         self.imp_menu.add_command(label="✏️ 编辑计划", command=self.edit_improvement_task)
         self.imp_menu.add_separator()
@@ -839,7 +984,7 @@ class TodoApp:
         return f"{d.year}年{d.month:02d}月{d.day:02d}日"
 
     def _tick_clock(self):
-        self.clock_label.config(text="🕐 " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self.clock_label.config(text="🕐 " + datetime.now().strftime("%Y-%m-%d\n%H:%M:%S"))
         self.root.after(1000, self._tick_clock)
 
     def on_close(self):
