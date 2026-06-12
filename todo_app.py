@@ -795,7 +795,7 @@ class TodoApp:
         self.completed_tasks_shown = False
         self.daily_view_btn.config(text="👁 查看已完成")
         self.update_task_display()
-        self.set_status(f"📅 已切换至 {self.current_date.strftime('%Y年%m月%d日')}")
+        self.set_status(f"📅 已切换至 {self.current_date_cn()}")
 
     def go_to_today(self):
         self.current_date = datetime.now().date()
@@ -815,7 +815,7 @@ class TodoApp:
         high_pri = sum(1 for t in data.get("not_done", []) if t.startswith("🔴"))
 
         msg = (
-            f"📅 日期: {self.current_date.strftime('%Y年%m月%d日')}\n"
+            f"📅 日期: {self.current_date_cn()}\n"
             f"{'─' * 25}\n"
             f"📊 总任务数: {total}\n"
             f"✅ 已完成: {done}\n"
@@ -834,8 +834,12 @@ class TodoApp:
             3000, lambda: self.status_label.config(
                 text=f"当前日期: {self.current_date.strftime('%Y-%m-%d')}"))
 
+    def current_date_cn(self):
+        d = self.current_date
+        return f"{d.year}年{d.month:02d}月{d.day:02d}日"
+
     def _tick_clock(self):
-        self.clock_label.config(text=datetime.now().strftime("🕐 %Y-%m-%d %H:%M:%S"))
+        self.clock_label.config(text="🕐 " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         self.root.after(1000, self._tick_clock)
 
     def on_close(self):
