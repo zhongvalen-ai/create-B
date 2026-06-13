@@ -202,6 +202,12 @@ class TodoApp:
         content = tk.Frame(self.root, bg=self.BG)
         content.pack(side="left", fill="both", expand=True)
 
+        # 状态栏先创建，确保 status_label 在任何 set_status / 页面构建之前就绪
+        status_bar = tk.Frame(content, bg="#FFFFFF", highlightbackground=self.BORDER, highlightthickness=1)
+        status_bar.pack(fill="x", side="bottom")
+        self.status_label = tk.Label(status_bar, text="就绪", bg="#FFFFFF", fg=self.MUTED, font=(self.FONT, 9))
+        self.status_label.pack(side="left", padx=16, pady=6)
+
         self.page_container = tk.Frame(content, bg=self.BG)
         self.page_container.pack(fill="both", expand=True)
         self.page_container.grid_rowconfigure(0, weight=1)
@@ -215,11 +221,6 @@ class TodoApp:
         self.create_daily_tab()
         self.create_improvement_tab()
         self.create_pomodoro_tab()
-
-        status_bar = tk.Frame(content, bg="#FFFFFF", highlightbackground=self.BORDER, highlightthickness=1)
-        status_bar.pack(fill="x", side="bottom")
-        self.status_label = tk.Label(status_bar, text="就绪", bg="#FFFFFF", fg=self.MUTED, font=(self.FONT, 9))
-        self.status_label.pack(side="left", padx=16, pady=6)
 
         self._tick_clock()
 
@@ -1071,6 +1072,8 @@ class TodoApp:
         messagebox.showinfo("📊 每日任务详细统计", msg)
 
     def set_status(self, text):
+        if not hasattr(self, "status_label"):
+            return
         self.status_label.config(text=text)
         if self._status_after_id:
             self.root.after_cancel(self._status_after_id)
