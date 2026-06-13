@@ -14,38 +14,40 @@ except Exception:  # plyer 未安装时降级
 class TodoApp:
     TASKS_FILE = "tasks.json"
     IMP_FILE = "improvement_tasks.json"
+    RECUR_FILE = "recurring.json"
 
     PRIORITY_OPTIONS = ["🟢 低", "🟡 中", "🔴 高"]
     PRIORITY_TAG = {"🔴": "high", "🟡": "medium", "🟢": "low"}
+    PRIORITY_COLOR = {"🔴": "#EF4444", "🟡": "#D97706", "🟢": "#059669"}
+    WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
     # ---------- 设计系统 / 调色板 ----------
-    BG = "#F1F5F9"            # 内容区背景 (slate-100)
+    BG = "#F1F5F9"
     CARD = "#FFFFFF"
     BORDER = "#E5E7EB"
-    TEXT = "#0F172A"          # 主文字 (slate-900)
-    MUTED = "#64748B"         # 次要文字 (slate-500)
+    TEXT = "#0F172A"
+    MUTED = "#64748B"
 
-    SIDEBAR = "#1E1B4B"       # 侧边栏深色 (indigo-950)
-    SIDEBAR_TEXT = "#C7D2FE"  # 侧边栏文字 (indigo-200)
-    SIDEBAR_HOVER = "#312E81" # indigo-900
-    SIDEBAR_ACTIVE = "#4F46E5"# indigo-600
+    SIDEBAR = "#1E1B4B"
+    SIDEBAR_TEXT = "#C7D2FE"
+    SIDEBAR_HOVER = "#312E81"
+    SIDEBAR_ACTIVE = "#4F46E5"
 
-    ACCENT = "#4F46E5"        # 主题色 indigo-600
+    ACCENT = "#4F46E5"
     ACCENT_DK = "#4338CA"
     SUCCESS = "#10B981"
     SUCCESS_DK = "#059669"
     DANGER = "#EF4444"
     DANGER_DK = "#DC2626"
 
-    STRIPE = "#F8FAFC"        # 斑马纹
-
+    STRIPE = "#F8FAFC"
     FONT = "Microsoft YaHei UI"
 
     def __init__(self, root):
         self.root = root
         self.root.title("✨ 待办计划与健康助手")
-        self.root.geometry("1040x740")
-        self.root.minsize(940, 660)
+        self.root.geometry("1040x760")
+        self.root.minsize(960, 680)
         self.root.configure(bg=self.BG)
 
         try:
@@ -58,11 +60,12 @@ class TodoApp:
         self.todo_list = self.load_tasks()
         self.completed_tasks_shown = False
 
+        # 长期计划：list[{"text","priority","progress"}]
         self.improvement_tasks = self.load_improvement_tasks()
-        self.improvement_completed_shown = False
+        # 循环任务规则：list[{"text","priority","freq","weekday"?}]
+        self.recurring = self.load_recurring()
 
         self.daily_items = {}
-        self.improvement_items = {}
 
         # ---------- 番茄钟 ----------
         self.pomodoro_running = False
@@ -85,6 +88,7 @@ class TodoApp:
         self.create_widgets()
         self.create_context_menus()
 
+        self.generate_recurring()          # 生成今天的循环任务实例
         self.update_task_display()
         self.update_improvement_display()
         self.show_page("daily")
@@ -102,29 +106,27 @@ class TodoApp:
         base_font = (self.FONT, 10)
         self.style.configure(".", background=self.CARD, foreground=self.TEXT, font=base_font)
 
-        # 主按钮
         self.style.configure("Accent.TButton", font=(self.FONT, 10, "bold"), padding=(14, 8),
                              background=self.ACCENT, foreground="white", borderwidth=0, focusthickness=0)
-        self.style.map("Accent.TButton",
-                       background=[("active", self.ACCENT_DK), ("disabled", "#A5B4FC")])
+        self.style.map("Accent.TButton", background=[("active", self.ACCENT_DK), ("disabled", "#A5B4FC")])
 
         self.style.configure("Success.TButton", font=(self.FONT, 10, "bold"), padding=(14, 8),
                              background=self.SUCCESS, foreground="white", borderwidth=0, focusthickness=0)
-        self.style.map("Success.TButton",
-                       background=[("active", self.SUCCESS_DK), ("disabled", "#9CA3AF")])
+        self.style.map("Success.TButton", background=[("active", self.SUCCESS_DK), ("disabled", "#9CA3AF")])
 
         self.style.configure("Danger.TButton", font=(self.FONT, 10, "bold"), padding=(14, 8),
                              background=self.DANGER, foreground="white", borderwidth=0, focusthickness=0)
-        self.style.map("Danger.TButton",
-                       background=[("active", self.DANGER_DK), ("disabled", "#9CA3AF")])
+        self.style.map("Danger.TButton", background=[("active", self.DANGER_DK), ("disabled", "#9CA3AF")])
 
-        # 次要 / 幽灵按钮
         self.style.configure("Ghost.TButton", font=(self.FONT, 10), padding=(12, 7),
                              background="#EEF2FF", foreground="#4338CA", borderwidth=0, focusthickness=0)
-        self.style.map("Ghost.TButton",
-                       background=[("active", "#E0E7FF")])
+        self.style.map("Ghost.TButton", background=[("active", "#E0E7FF")])
 
-        # 输入框 / 下拉框
+        # 行内小按钮
+        self.style.configure("Mini.TButton", font=(self.FONT, 9), padding=(6, 3),
+                             background="#EEF2FF", foreground="#4338CA", borderwidth=0, focusthickness=0)
+        self.style.map("Mini.TButton", background=[("active", "#E0E7FF")])
+
         self.style.configure("TEntry", padding=8, relief="flat",
                              fieldbackground="#FFFFFF", bordercolor=self.BORDER, borderwidth=1)
         self.style.map("TEntry", bordercolor=[("focus", self.ACCENT)])
@@ -132,32 +134,32 @@ class TodoApp:
                              fieldbackground="#FFFFFF", bordercolor=self.BORDER, borderwidth=1)
         self.style.map("TCombobox", bordercolor=[("focus", self.ACCENT)])
 
-        # Treeview
         self.style.configure("Treeview", rowheight=38, font=(self.FONT, 10),
                              fieldbackground="#FFFFFF", background="#FFFFFF",
                              foreground=self.TEXT, borderwidth=0)
-        self.style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # 去掉外边框
+        self.style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
         self.style.configure("Treeview.Heading", font=(self.FONT, 10, "bold"),
                              background="#F8FAFC", foreground="#475569",
                              relief="flat", borderwidth=0, padding=(8, 8))
         self.style.map("Treeview.Heading", background=[("active", "#EEF2FF")])
-        self.style.map("Treeview",
-                       background=[("selected", "#E0E7FF")],
-                       foreground=[("selected", "#3730A3")])
+        self.style.map("Treeview", background=[("selected", "#E0E7FF")], foreground=[("selected", "#3730A3")])
 
-        # 滚动条
         self.style.configure("Vertical.TScrollbar", background="#CBD5E1", troughcolor="#F1F5F9",
                              borderwidth=0, arrowcolor="#64748B")
 
-        # 进度条
         self.style.configure("Accent.Horizontal.TProgressbar",
                              background=self.ACCENT, troughcolor="#E2E8F0", thickness=14, borderwidth=0)
         self.style.configure("Green.Horizontal.TProgressbar",
                              background=self.SUCCESS, troughcolor="#E2E8F0", thickness=14, borderwidth=0)
+        self.style.configure("Plan.Horizontal.TProgressbar",
+                             background=self.ACCENT, troughcolor="#E2E8F0", thickness=10, borderwidth=0)
+        self.style.configure("PlanDone.Horizontal.TProgressbar",
+                             background=self.SUCCESS, troughcolor="#E2E8F0", thickness=10, borderwidth=0)
 
-    # ---------- 小组件工厂 ----------
+        self.style.configure("TScale", background=self.CARD, troughcolor="#E2E8F0", borderwidth=0)
+
+    # ---------- 组件工厂 ----------
     def _card(self, parent, padx=18, pady=18):
-        """返回 (外框, 内容框)。外框带 1px 边框，内容框已加内边距。"""
         outer = tk.Frame(parent, bg=self.CARD, highlightbackground=self.BORDER,
                          highlightcolor=self.BORDER, highlightthickness=1, bd=0)
         inner = tk.Frame(outer, bg=self.CARD)
@@ -173,7 +175,6 @@ class TodoApp:
 
     # ================= 界面骨架 =================
     def create_widgets(self):
-        # ---------- 侧边栏 ----------
         sidebar = tk.Frame(self.root, bg=self.SIDEBAR, width=216)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
@@ -192,14 +193,12 @@ class TodoApp:
         self._add_nav("improvement", "📈   长期计划")
         self._add_nav("pomodoro", "⏱️   番茄时钟")
 
-        # 侧边栏底部时钟
         clock_box = tk.Frame(sidebar, bg=self.SIDEBAR)
         clock_box.pack(side="bottom", fill="x", padx=20, pady=18)
         self.clock_label = tk.Label(clock_box, text="", bg=self.SIDEBAR, fg="#A5B4FC",
-                                    font=("Consolas", 9))
+                                    font=("Consolas", 9), justify="left")
         self.clock_label.pack(anchor="w")
 
-        # ---------- 内容区 ----------
         content = tk.Frame(self.root, bg=self.BG)
         content.pack(side="left", fill="both", expand=True)
 
@@ -217,12 +216,9 @@ class TodoApp:
         self.create_improvement_tab()
         self.create_pomodoro_tab()
 
-        # ---------- 底部状态栏 ----------
-        status_bar = tk.Frame(content, bg="#FFFFFF", highlightbackground=self.BORDER,
-                              highlightthickness=1)
+        status_bar = tk.Frame(content, bg="#FFFFFF", highlightbackground=self.BORDER, highlightthickness=1)
         status_bar.pack(fill="x", side="bottom")
-        self.status_label = tk.Label(status_bar, text="就绪", bg="#FFFFFF", fg=self.MUTED,
-                                     font=(self.FONT, 9))
+        self.status_label = tk.Label(status_bar, text="就绪", bg="#FFFFFF", fg=self.MUTED, font=(self.FONT, 9))
         self.status_label.pack(side="left", padx=16, pady=6)
 
         self._tick_clock()
@@ -253,16 +249,14 @@ class TodoApp:
     def _page_header(self, page, title, subtitle):
         header = tk.Frame(page, bg=self.BG)
         header.pack(fill="x", padx=26, pady=(22, 12))
-        tk.Label(header, text=title, bg=self.BG, fg=self.TEXT,
-                 font=(self.FONT, 18, "bold")).pack(anchor="w")
-        tk.Label(header, text=subtitle, bg=self.BG, fg=self.MUTED,
-                 font=(self.FONT, 10)).pack(anchor="w", pady=(2, 0))
+        tk.Label(header, text=title, bg=self.BG, fg=self.TEXT, font=(self.FONT, 18, "bold")).pack(anchor="w")
+        tk.Label(header, text=subtitle, bg=self.BG, fg=self.MUTED, font=(self.FONT, 10)).pack(anchor="w", pady=(2, 0))
         return header
 
     # ================= 每日待办页 =================
     def create_daily_tab(self):
         page = self.pages["daily"]
-        self._page_header(page, "📅 每日待办", "管理今天的任务，未完成的会自动结转到今天")
+        self._page_header(page, "📅 每日待办", "管理今天的任务，未完成的会自动结转；🔁 为循环任务")
 
         body = tk.Frame(page, bg=self.BG)
         body.pack(fill="both", expand=True, padx=26, pady=(0, 14))
@@ -270,7 +264,6 @@ class TodoApp:
         top = tk.Frame(body, bg=self.BG)
         top.pack(fill="x")
 
-        # 日历卡片
         cal_outer, cal_card = self._card(top)
         cal_outer.pack(side="left", fill="y", padx=(0, 16))
         self._section_title(cal_card, "选择日期").pack(anchor="w", pady=(0, 10))
@@ -290,7 +283,6 @@ class TodoApp:
         ttk.Button(cal_card, text="↩ 回到今天", style="Ghost.TButton",
                    command=self.go_to_today).pack(fill="x", pady=(12, 0))
 
-        # 输入卡片
         in_outer, in_card = self._card(top)
         in_outer.pack(side="left", fill="both", expand=True)
         self._section_title(in_card, "添加新任务").pack(anchor="w", pady=(0, 12))
@@ -299,7 +291,10 @@ class TodoApp:
         row.pack(fill="x")
         self.priority_combo = ttk.Combobox(row, values=self.PRIORITY_OPTIONS, width=7, state="readonly")
         self.priority_combo.set("🟡 中")
-        self.priority_combo.pack(side="left", padx=(0, 10))
+        self.priority_combo.pack(side="left", padx=(0, 8))
+        self.freq_combo = ttk.Combobox(row, values=["一次性", "每日", "每周"], width=7, state="readonly")
+        self.freq_combo.set("一次性")
+        self.freq_combo.pack(side="left", padx=(0, 8))
         self.todo_entry = ttk.Entry(row, font=(self.FONT, 11))
         self.todo_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.todo_entry.bind("<Return>", lambda e: self.add_task())
@@ -307,19 +302,17 @@ class TodoApp:
 
         self.daily_stats_label = self._label(in_card, "今日统计：加载中...", fg=self.MUTED)
         self.daily_stats_label.pack(anchor="w", pady=(16, 0))
+        self._label(in_card, "提示：选「每日/每周」即可创建循环任务，双击切换状态，右键可编辑/删除",
+                    fg="#94A3B8", size=9).pack(anchor="w", pady=(8, 0))
 
-        # 提示
-        self._label(in_card,
-                    "提示：双击任务切换完成状态，右键可编辑或删除",
-                    fg="#94A3B8", size=9).pack(anchor="w", pady=(10, 0))
-
-        # 任务列表卡片
         list_outer, list_card = self._card(body, padx=14, pady=14)
         list_outer.pack(fill="both", expand=True, pady=(16, 0))
 
         bar = tk.Frame(list_card, bg=self.CARD)
         bar.pack(fill="x", pady=(0, 10))
         self._label(bar, "📋 任务列表", size=12, bold=True).pack(side="left")
+        ttk.Button(bar, text="🔁 循环任务", style="Ghost.TButton",
+                   command=self.manage_recurring).pack(side="left", padx=(12, 0))
         self.daily_view_btn = ttk.Button(bar, text="👁 查看已完成", style="Ghost.TButton",
                                           command=self.toggle_task_view)
         self.daily_view_btn.pack(side="right")
@@ -330,16 +323,14 @@ class TodoApp:
 
         tree_wrap = tk.Frame(list_card, bg=self.CARD)
         tree_wrap.pack(fill="both", expand=True)
-        self.task_tree = ttk.Treeview(tree_wrap, columns=("status", "task"),
-                                      show="headings", selectmode="browse")
+        self.task_tree = ttk.Treeview(tree_wrap, columns=("status", "task"), show="headings", selectmode="browse")
         self.task_tree.heading("status", text="状态")
         self.task_tree.heading("task", text="任务内容")
         self.task_tree.column("status", width=80, anchor="center", stretch=False)
         self.task_tree.column("task", width=560, anchor="w")
         self._config_tree_tags(self.task_tree)
 
-        sb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.task_tree.yview,
-                           style="Vertical.TScrollbar")
+        sb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.task_tree.yview, style="Vertical.TScrollbar")
         self.task_tree.configure(yscrollcommand=sb.set)
         self.task_tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
@@ -349,24 +340,22 @@ class TodoApp:
     # ================= 长期计划页 =================
     def create_improvement_tab(self):
         page = self.pages["improvement"]
-        self._page_header(page, "📈 长期计划", "追踪你的长期目标与整体进度")
+        self._page_header(page, "📈 长期计划", "为每个目标拖动滑块设置进度，随时掌握完成情况")
 
         body = tk.Frame(page, bg=self.BG)
         body.pack(fill="both", expand=True, padx=26, pady=(0, 14))
 
-        # 进度卡片
         prog_outer, prog_card = self._card(body)
         prog_outer.pack(fill="x")
         head = tk.Frame(prog_card, bg=self.CARD)
         head.pack(fill="x", pady=(0, 12))
-        self._section_title(head, "🎯 整体进度").pack(side="left")
+        self._section_title(head, "🎯 平均进度").pack(side="left")
         self.improvement_prog_label = self._label(head, "0%", fg=self.MUTED, size=11, bold=True)
         self.improvement_prog_label.pack(side="right")
         self.improvement_progress = ttk.Progressbar(prog_card, style="Green.Horizontal.TProgressbar",
                                                      mode="determinate")
         self.improvement_progress.pack(fill="x")
 
-        # 输入卡片
         in_outer, in_card = self._card(body)
         in_outer.pack(fill="x", pady=(16, 0))
         self._section_title(in_card, "添加长期计划").pack(anchor="w", pady=(0, 12))
@@ -381,42 +370,31 @@ class TodoApp:
         ttk.Button(row, text="＋ 添加", style="Success.TButton",
                    command=self.add_improvement_task).pack(side="right")
 
-        # 列表卡片
         list_outer, list_card = self._card(body, padx=14, pady=14)
         list_outer.pack(fill="both", expand=True, pady=(16, 0))
-        bar = tk.Frame(list_card, bg=self.CARD)
-        bar.pack(fill="x", pady=(0, 10))
-        self._label(bar, "🚀 计划列表", size=12, bold=True).pack(side="left")
-        self.imp_view_btn = ttk.Button(bar, text="👁 查看已完成", style="Ghost.TButton",
-                                       command=self.toggle_improvement_view)
-        self.imp_view_btn.pack(side="right")
+        self._label(list_card, "🚀 计划列表", size=12, bold=True).pack(anchor="w", pady=(0, 10))
 
-        tree_wrap = tk.Frame(list_card, bg=self.CARD)
-        tree_wrap.pack(fill="both", expand=True)
-        self.improvement_tree = ttk.Treeview(tree_wrap, columns=("status", "task"),
-                                             show="headings", selectmode="browse")
-        self.improvement_tree.heading("status", text="状态")
-        self.improvement_tree.heading("task", text="计划内容")
-        self.improvement_tree.column("status", width=80, anchor="center", stretch=False)
-        self.improvement_tree.column("task", width=560, anchor="w")
-        self._config_tree_tags(self.improvement_tree)
-
-        sb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.improvement_tree.yview,
+        # 可滚动区域
+        canvas_wrap = tk.Frame(list_card, bg=self.CARD)
+        canvas_wrap.pack(fill="both", expand=True)
+        self.plan_canvas = tk.Canvas(canvas_wrap, bg=self.CARD, highlightthickness=0)
+        sb = ttk.Scrollbar(canvas_wrap, orient="vertical", command=self.plan_canvas.yview,
                            style="Vertical.TScrollbar")
-        self.improvement_tree.configure(yscrollcommand=sb.set)
-        self.improvement_tree.pack(side="left", fill="both", expand=True)
+        self.plan_canvas.configure(yscrollcommand=sb.set)
+        self.plan_canvas.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        self.improvement_tree.bind("<Double-1>", self.toggle_improvement_status)
-        self.improvement_tree.bind("<Button-3>", self.show_imp_context_menu)
 
-    def _config_tree_tags(self, tree):
-        tree.tag_configure('high', foreground=self.DANGER)
-        tree.tag_configure('medium', foreground="#D97706")
-        tree.tag_configure('low', foreground=self.SUCCESS_DK)
-        tree.tag_configure('done', foreground="#94A3B8")
-        tree.tag_configure('empty', foreground="#94A3B8")
-        tree.tag_configure('oddrow', background="#FFFFFF")
-        tree.tag_configure('evenrow', background=self.STRIPE)
+        self.plans_inner = tk.Frame(self.plan_canvas, bg=self.CARD)
+        self._plan_window = self.plan_canvas.create_window((0, 0), window=self.plans_inner, anchor="nw")
+        self.plans_inner.bind("<Configure>",
+                              lambda e: self.plan_canvas.configure(scrollregion=self.plan_canvas.bbox("all")))
+        self.plan_canvas.bind("<Configure>",
+                             lambda e: self.plan_canvas.itemconfig(self._plan_window, width=e.width))
+        self.plan_canvas.bind("<Enter>", lambda e: self.plan_canvas.bind_all("<MouseWheel>", self._on_plan_wheel))
+        self.plan_canvas.bind("<Leave>", lambda e: self.plan_canvas.unbind_all("<MouseWheel>"))
+
+    def _on_plan_wheel(self, event):
+        self.plan_canvas.yview_scroll(int(-event.delta / 120), "units")
 
     # ================= 番茄时钟页 =================
     def create_pomodoro_tab(self):
@@ -426,25 +404,20 @@ class TodoApp:
         wrap = tk.Frame(page, bg=self.BG)
         wrap.pack(fill="both", expand=True, padx=26, pady=(0, 20))
 
-        # 中央计时卡片
         timer_outer, timer_card = self._card(wrap, padx=40, pady=30)
         timer_outer.pack(pady=(6, 0))
 
-        self.pomodoro_status_label = self._label(timer_card, "准备开始工作",
-                                                 fg=self.MUTED, size=12, bold=True)
+        self.pomodoro_status_label = self._label(timer_card, "准备开始工作", fg=self.MUTED, size=12, bold=True)
         self.pomodoro_status_label.pack(pady=(0, 8))
-
-        self.pomodoro_time_display = tk.Label(timer_card, text="25:00", bg=self.CARD,
-                                              fg=self.TEXT, font=("Consolas", 72, "bold"))
+        self.pomodoro_time_display = tk.Label(timer_card, text="25:00", bg=self.CARD, fg=self.TEXT,
+                                              font=("Consolas", 72, "bold"))
         self.pomodoro_time_display.pack(pady=(0, 14))
 
         self.pomodoro_progress = tk.DoubleVar(value=100)
         self.progress_bar = ttk.Progressbar(timer_card, variable=self.pomodoro_progress,
-                                            style="Accent.Horizontal.TProgressbar",
-                                            length=460, mode="determinate")
+                                            style="Accent.Horizontal.TProgressbar", length=460, mode="determinate")
         self.progress_bar.pack(pady=(0, 4))
 
-        # 控制按钮
         btns = tk.Frame(timer_card, bg=self.CARD)
         btns.pack(pady=(22, 0))
         self.start_btn = ttk.Button(btns, text="▶ 开始专注", style="Success.TButton",
@@ -454,7 +427,6 @@ class TodoApp:
                                    command=self.stop_pomodoro, width=14)
         self.stop_btn.pack(side="left", padx=8)
 
-        # 设置卡片
         set_outer, set_card = self._card(wrap)
         set_outer.pack(pady=(18, 0))
         self._section_title(set_card, "⚙️ 时长设置（分钟）").pack(anchor="w", pady=(0, 12))
@@ -492,27 +464,58 @@ class TodoApp:
         return tasks
 
     def load_improvement_tasks(self):
+        """返回 list[dict]。兼容旧的 {not_done, done} 字符串格式。"""
         if os.path.exists(self.IMP_FILE):
             try:
                 with open(self.IMP_FILE, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
-                if isinstance(loaded, dict) and "not_done" in loaded and "done" in loaded:
-                    return loaded
+            except Exception:
+                return []
+            # 新格式
+            if isinstance(loaded, list):
+                plans = []
+                for d in loaded:
+                    if isinstance(d, dict) and "text" in d:
+                        plans.append({
+                            "text": d.get("text", ""),
+                            "priority": d.get("priority", "🟡"),
+                            "progress": int(d.get("progress", 0)),
+                        })
+                return plans
+            # 旧格式迁移
+            if isinstance(loaded, dict):
+                plans = []
+                for s in loaded.get("not_done", []):
+                    plans.append(self._parse_legacy_plan(s, 0))
+                for s in loaded.get("done", []):
+                    plans.append(self._parse_legacy_plan(s, 100))
+                return plans
+        return []
+
+    def _parse_legacy_plan(self, s, progress):
+        emoji = s[0] if s and s[0] in self.PRIORITY_COLOR else "🟡"
+        text = s.split(" ", 1)[1].strip() if " " in s else s
+        return {"text": text, "priority": emoji, "progress": progress}
+
+    def load_recurring(self):
+        if os.path.exists(self.RECUR_FILE):
+            try:
+                with open(self.RECUR_FILE, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, list):
+                    return [r for r in loaded if isinstance(r, dict) and "text" in r]
             except Exception:
                 pass
-        return {"not_done": [], "done": []}
+        return []
 
     def carry_over_tasks(self, tasks):
-        """智能结转：将过去所有未完成的积压任务结转到今天"""
         today = self.current_date.isoformat()
         tasks.setdefault(today, {"not_done": [], "done": []})
-
         uncompleted = []
         for date_str, data in tasks.items():
             if date_str < today and data.get("not_done"):
                 uncompleted.extend(data["not_done"])
                 data["not_done"] = []
-
         if uncompleted:
             existing = tasks[today]["not_done"]
             for task in uncompleted:
@@ -533,6 +536,95 @@ class TodoApp:
         except Exception as e:
             self.set_status(f"⚠️ 保存失败: {e}")
 
+    def save_recurring(self):
+        try:
+            with open(self.RECUR_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.recurring, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.set_status(f"⚠️ 保存失败: {e}")
+
+    # ================= 循环任务 =================
+    def generate_recurring(self):
+        """根据循环规则，为「今天」生成尚不存在的任务实例。"""
+        today = datetime.now().date()
+        key = today.isoformat()
+        data = self._ensure_date(key)
+        wd = today.weekday()
+        changed = False
+        for rec in self.recurring:
+            if rec.get("freq") == "weekly" and rec.get("weekday", wd) != wd:
+                continue
+            inst = f"{rec.get('priority', '🟡')} 🔁 {rec['text']}"
+            if inst not in data["not_done"] and inst not in data["done"]:
+                data["not_done"].append(inst)
+                changed = True
+        if changed:
+            self.save_tasks()
+
+    def add_recurring(self, text, priority, freq, weekday=None):
+        rule = {"text": text, "priority": priority, "freq": freq}
+        if freq == "weekly":
+            rule["weekday"] = weekday if weekday is not None else datetime.now().weekday()
+        for r in self.recurring:
+            if r["text"] == text and r.get("freq") == freq and r.get("weekday") == rule.get("weekday"):
+                self.set_status("⚠️ 该循环任务已存在")
+                return
+        self.recurring.append(rule)
+        self.save_recurring()
+        self.generate_recurring()
+        self.update_task_display()
+        name = "每日" if freq == "daily" else f"每周{self.WEEKDAYS[rule['weekday']]}"
+        self.set_status(f"🔁 已创建{name}循环任务 '{text}'")
+
+    def manage_recurring(self):
+        win = tk.Toplevel(self.root)
+        win.title("🔁 循环任务管理")
+        win.configure(bg=self.BG)
+        win.geometry("440x360")
+        win.transient(self.root)
+
+        tk.Label(win, text="循环任务规则", bg=self.BG, fg=self.TEXT,
+                 font=(self.FONT, 12, "bold")).pack(anchor="w", padx=16, pady=(14, 8))
+
+        wrap = tk.Frame(win, bg=self.CARD, highlightbackground=self.BORDER, highlightthickness=1)
+        wrap.pack(fill="both", expand=True, padx=16)
+        tree = ttk.Treeview(wrap, columns=("freq", "task"), show="headings", selectmode="browse")
+        tree.heading("freq", text="频率")
+        tree.heading("task", text="任务内容")
+        tree.column("freq", width=110, anchor="center", stretch=False)
+        tree.column("task", width=290, anchor="w")
+        tree.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(wrap, orient="vertical", command=tree.yview, style="Vertical.TScrollbar")
+        tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+
+        def refresh():
+            tree.delete(*tree.get_children())
+            for i, r in enumerate(self.recurring):
+                if r.get("freq") == "weekly":
+                    freq = f"每周{self.WEEKDAYS[r.get('weekday', 0)]}"
+                else:
+                    freq = "每日"
+                tree.insert("", "end", iid=str(i), values=(freq, f"{r.get('priority', '🟡')} {r['text']}"))
+
+        def delete_sel():
+            sel = tree.selection()
+            if not sel:
+                return
+            idx = int(sel[0])
+            if 0 <= idx < len(self.recurring):
+                if messagebox.askyesno("确认删除", "删除该循环规则？（已生成的今日任务不受影响）", parent=win):
+                    self.recurring.pop(idx)
+                    self.save_recurring()
+                    refresh()
+                    self.set_status("🗑️ 已删除循环规则")
+
+        refresh()
+        btn_row = tk.Frame(win, bg=self.BG)
+        btn_row.pack(fill="x", padx=16, pady=12)
+        ttk.Button(btn_row, text="🗑️ 删除选中", style="Danger.TButton", command=delete_sel).pack(side="left")
+        ttk.Button(btn_row, text="关闭", style="Ghost.TButton", command=win.destroy).pack(side="right")
+
     # ================= 每日任务 =================
     def _ensure_date(self, date_key):
         self.todo_list.setdefault(date_key, {"not_done": [], "done": []})
@@ -545,9 +637,21 @@ class TodoApp:
             return
 
         priority = self.priority_combo.get().split(" ")[0]
+        freq = self.freq_combo.get()
+
+        if freq == "每日":
+            self.add_recurring(text, priority, "daily")
+            self.todo_entry.delete(0, tk.END)
+            self.freq_combo.set("一次性")
+            return
+        if freq == "每周":
+            self.add_recurring(text, priority, "weekly", datetime.now().weekday())
+            self.todo_entry.delete(0, tk.END)
+            self.freq_combo.set("一次性")
+            return
+
         time_str = datetime.now().strftime("%H:%M")
         task_str = f"{priority} {text} | {time_str}"
-
         date_key = self.current_date.isoformat()
         data = self._ensure_date(date_key)
         if task_str in data["not_done"]:
@@ -574,7 +678,6 @@ class TodoApp:
         if task is None:
             return
         data = self._ensure_date(self.current_date.isoformat())
-
         if self.completed_tasks_shown:
             if task in data["done"]:
                 data["done"].remove(task)
@@ -585,7 +688,6 @@ class TodoApp:
                 data["not_done"].remove(task)
                 data["done"].append(task)
                 self.set_status("🎉 恭喜！任务已完成")
-
         self.update_task_display()
         self.save_tasks()
 
@@ -595,7 +697,9 @@ class TodoApp:
             return
         parts = task.split(" | ")
         head = parts[0]
+        is_recurring = "🔁" in head
         raw_text = head.split(" ", 1)[1] if " " in head else head
+        raw_text = raw_text.replace("🔁", "").strip()
 
         new_text = simpledialog.askstring("编辑任务", "修改任务内容:", initialvalue=raw_text, parent=self.root)
         if new_text and new_text.strip():
@@ -604,8 +708,11 @@ class TodoApp:
             if task in data[cat]:
                 idx = data[cat].index(task)
                 emoji = task[0]
-                time_part = parts[1] if len(parts) > 1 else datetime.now().strftime("%H:%M")
-                data[cat][idx] = f"{emoji} {new_text.strip()} | {time_part}"
+                if is_recurring:
+                    data[cat][idx] = f"{emoji} 🔁 {new_text.strip()}"
+                else:
+                    time_part = parts[1] if len(parts) > 1 else datetime.now().strftime("%H:%M")
+                    data[cat][idx] = f"{emoji} {new_text.strip()} | {time_part}"
                 self.update_task_display()
                 self.save_tasks()
                 self.set_status("✏️ 任务已更新")
@@ -637,8 +744,7 @@ class TodoApp:
 
     def toggle_task_view(self):
         self.completed_tasks_shown = not self.completed_tasks_shown
-        self.daily_view_btn.config(
-            text="👁 查看未完成" if self.completed_tasks_shown else "👁 查看已完成")
+        self.daily_view_btn.config(text="👁 查看未完成" if self.completed_tasks_shown else "👁 查看已完成")
         self.update_task_display()
 
     @staticmethod
@@ -681,103 +787,116 @@ class TodoApp:
         if not text:
             messagebox.showwarning("提示", "计划内容不能为空！")
             return
-
         priority = self.imp_priority_combo.get().split(" ")[0]
-        task_str = f"{priority} {text}"
-        if task_str in self.improvement_tasks["not_done"]:
+        if any(p["text"] == text for p in self.improvement_tasks):
             self.set_status("⚠️ 该计划已存在")
             return
-        self.improvement_tasks["not_done"].append(task_str)
+        self.improvement_tasks.append({"text": text, "priority": priority, "progress": 0})
         self.improvement_entry.delete(0, tk.END)
-        if self.improvement_completed_shown:
-            self.improvement_completed_shown = False
-            self.imp_view_btn.config(text="👁 查看已完成")
         self.update_improvement_display()
         self.save_improvement_tasks()
         self.set_status(f"✅ 长期计划 '{text}' 已添加")
 
-    def _selected_imp_task(self):
-        sel = self.improvement_tree.selection()
-        if not sel:
-            return None
-        return self.improvement_items.get(sel[0])
-
-    def toggle_improvement_status(self, event=None):
-        task = self._selected_imp_task()
-        if task is None:
+    def edit_improvement_task(self, index):
+        if not (0 <= index < len(self.improvement_tasks)):
             return
-        if self.improvement_completed_shown:
-            if task in self.improvement_tasks["done"]:
-                self.improvement_tasks["done"].remove(task)
-                self.improvement_tasks["not_done"].append(task)
-                self.set_status("🔄 计划已恢复为未完成")
-        else:
-            if task in self.improvement_tasks["not_done"]:
-                self.improvement_tasks["not_done"].remove(task)
-                self.improvement_tasks["done"].append(task)
-                self.set_status("🎉 长期计划已完成")
-
-        self.update_improvement_display()
-        self.save_improvement_tasks()
-
-    def edit_improvement_task(self):
-        task = self._selected_imp_task()
-        if task is None:
-            return
-        raw_text = task.split(" ", 1)[1] if " " in task else task
-
-        new_text = simpledialog.askstring("编辑计划", "修改计划内容:", initialvalue=raw_text, parent=self.root)
+        plan = self.improvement_tasks[index]
+        new_text = simpledialog.askstring("编辑计划", "修改计划内容:", initialvalue=plan["text"], parent=self.root)
         if new_text and new_text.strip():
-            cat = "done" if self.improvement_completed_shown else "not_done"
-            if task in self.improvement_tasks[cat]:
-                idx = self.improvement_tasks[cat].index(task)
-                emoji = task[0]
-                self.improvement_tasks[cat][idx] = f"{emoji} {new_text.strip()}"
-                self.update_improvement_display()
-                self.save_improvement_tasks()
-                self.set_status("✏️ 计划已更新")
+            plan["text"] = new_text.strip()
+            self.update_improvement_display()
+            self.save_improvement_tasks()
+            self.set_status("✏️ 计划已更新")
 
-    def delete_improvement_task(self):
-        task = self._selected_imp_task()
-        if task is None:
+    def delete_improvement_task(self, index):
+        if not (0 <= index < len(self.improvement_tasks)):
             return
         if messagebox.askyesno("确认删除", "确定要删除该长期计划吗？"):
-            cat = "done" if self.improvement_completed_shown else "not_done"
-            if task in self.improvement_tasks[cat]:
-                self.improvement_tasks[cat].remove(task)
-                self.update_improvement_display()
-                self.save_improvement_tasks()
-                self.set_status("🗑️ 计划已删除")
+            self.improvement_tasks.pop(index)
+            self.update_improvement_display()
+            self.save_improvement_tasks()
+            self.set_status("🗑️ 计划已删除")
 
-    def toggle_improvement_view(self):
-        self.improvement_completed_shown = not self.improvement_completed_shown
-        self.imp_view_btn.config(
-            text="👁 查看未完成" if self.improvement_completed_shown else "👁 查看已完成")
-        self.update_improvement_display()
+    def _pct_color(self, progress):
+        if progress >= 100:
+            return self.SUCCESS_DK
+        if progress > 0:
+            return self.ACCENT
+        return self.MUTED
+
+    def _on_plan_scale(self, index, value, bar, pct_label):
+        v = int(round(float(value)))
+        if 0 <= index < len(self.improvement_tasks):
+            self.improvement_tasks[index]["progress"] = v
+        bar["value"] = v
+        bar.configure(style="PlanDone.Horizontal.TProgressbar" if v >= 100 else "Plan.Horizontal.TProgressbar")
+        pct_label.config(text=f"{v}%", fg=self._pct_color(v))
+        self._update_avg_progress()
+
+    def _on_plan_scale_release(self, event=None):
+        # 延迟刷新，避免在滑块自身的事件回调中销毁该控件导致报错
+        self.save_improvement_tasks()
+        self.root.after_idle(self.update_improvement_display)
+
+    def _update_avg_progress(self):
+        plans = self.improvement_tasks
+        avg = sum(p["progress"] for p in plans) / len(plans) if plans else 0
+        done = sum(1 for p in plans if p["progress"] >= 100)
+        self.improvement_progress["value"] = avg
+        self.improvement_prog_label.config(text=f"{avg:.0f}%   ({done}/{len(plans)} 已完成)")
 
     def update_improvement_display(self):
-        self.improvement_tree.delete(*self.improvement_tree.get_children())
-        self.improvement_items.clear()
+        for child in self.plans_inner.winfo_children():
+            child.destroy()
 
-        cat = "done" if self.improvement_completed_shown else "not_done"
-        tasks = self.improvement_tasks[cat]
+        if not self.improvement_tasks:
+            self._label(self.plans_inner, "还没有长期计划，立个目标吧 🚀",
+                        fg="#94A3B8", size=11).pack(pady=30)
+            self._update_avg_progress()
+            return
 
-        if not tasks:
-            placeholder = "暂无已完成计划 🎯" if self.improvement_completed_shown else "还没有长期计划，立个目标吧 🚀"
-            self.improvement_tree.insert("", "end", values=("", placeholder), tags=('empty',))
-        else:
-            status_icon = "✅" if self.improvement_completed_shown else "⏳"
-            for i, task in enumerate(tasks):
-                stripe = 'evenrow' if i % 2 else 'oddrow'
-                tag = self._priority_tag(task, self.improvement_completed_shown)
-                iid = self.improvement_tree.insert("", "end", values=(status_icon, task), tags=(tag, stripe))
-                self.improvement_items[iid] = task
+        for i, plan in enumerate(self.improvement_tasks):
+            self._build_plan_card(i, plan)
+        self._update_avg_progress()
 
-        total = len(self.improvement_tasks["not_done"]) + len(self.improvement_tasks["done"])
-        done = len(self.improvement_tasks["done"])
-        percent = (done / total * 100) if total > 0 else 0
-        self.improvement_progress["value"] = percent
-        self.improvement_prog_label.config(text=f"{percent:.0f}% ({done}/{total})")
+    def _build_plan_card(self, index, plan):
+        progress = int(plan.get("progress", 0))
+        emoji = plan.get("priority", "🟡")
+        done = progress >= 100
+
+        card = tk.Frame(self.plans_inner, bg=self.CARD, highlightbackground=self.BORDER, highlightthickness=1)
+        card.pack(fill="x", pady=5, padx=2)
+
+        top = tk.Frame(card, bg=self.CARD)
+        top.pack(fill="x", padx=14, pady=(10, 4))
+        dot = tk.Label(top, text="●", bg=self.CARD, fg=self.PRIORITY_COLOR.get(emoji, self.MUTED),
+                       font=(self.FONT, 11))
+        dot.pack(side="left", padx=(0, 6))
+        title_txt = ("✅ " if done else "") + plan.get("text", "")
+        title = tk.Label(top, text=title_txt, bg=self.CARD,
+                         fg=(self.MUTED if done else self.TEXT),
+                         font=(self.FONT, 11, "bold"), anchor="w")
+        title.pack(side="left", fill="x", expand=True)
+
+        ttk.Button(top, text="🗑", style="Mini.TButton", width=3,
+                   command=lambda i=index: self.delete_improvement_task(i)).pack(side="right", padx=(6, 0))
+        ttk.Button(top, text="✏", style="Mini.TButton", width=3,
+                   command=lambda i=index: self.edit_improvement_task(i)).pack(side="right")
+        pct_label = tk.Label(top, text=f"{progress}%", bg=self.CARD, fg=self._pct_color(progress),
+                             font=(self.FONT, 11, "bold"))
+        pct_label.pack(side="right", padx=(0, 10))
+
+        mid = tk.Frame(card, bg=self.CARD)
+        mid.pack(fill="x", padx=14, pady=(0, 12))
+        bar = ttk.Progressbar(mid, mode="determinate", maximum=100,
+                              style="PlanDone.Horizontal.TProgressbar" if done else "Plan.Horizontal.TProgressbar")
+        bar["value"] = progress
+        bar.pack(fill="x", pady=(0, 6))
+
+        scale = ttk.Scale(mid, from_=0, to=100, orient="horizontal", value=progress,
+                          command=lambda v, i=index, b=bar, p=pct_label: self._on_plan_scale(i, v, b, p))
+        scale.pack(fill="x")
+        scale.bind("<ButtonRelease-1>", self._on_plan_scale_release)
 
     # ================= 番茄钟 =================
     def _read_minutes(self, entry, default):
@@ -790,7 +909,6 @@ class TodoApp:
             return default
 
     def toggle_pomodoro(self):
-        """开始 / 暂停 / 继续"""
         if not self.pomodoro_running:
             self.start_pomodoro()
         elif self.pomodoro_paused:
@@ -810,7 +928,6 @@ class TodoApp:
             return
 
         if self.pomodoro_is_break:
-            # 每 4 个番茄进入长休息
             if self.completed_pomodoros > 0 and self.completed_pomodoros % 4 == 0:
                 mins = self._read_minutes(self.long_break_entry, 15)
                 self.pomodoro_status_label.config(text="🌴 长休息时间...", fg=self.SUCCESS_DK)
@@ -846,17 +963,13 @@ class TodoApp:
     def run_pomodoro_tick(self):
         if not self.pomodoro_running or self.pomodoro_paused:
             return
-
         mins, secs = divmod(self.pomodoro_time_left, 60)
         self.pomodoro_time_display.config(text=f"{mins:02d}:{secs:02d}")
-
         if self.pomodoro_total_time > 0:
             self.pomodoro_progress.set((self.pomodoro_time_left / self.pomodoro_total_time) * 100)
-
         if self.pomodoro_time_left <= 0:
             self.pomodoro_finished()
             return
-
         self.pomodoro_time_left -= 1
         self.pomodoro_after_id = self.root.after(1000, self.run_pomodoro_tick)
 
@@ -864,7 +977,6 @@ class TodoApp:
         self.pomodoro_running = False
         self.pomodoro_paused = False
         self.pomodoro_after_id = None
-
         if not self.pomodoro_is_break:
             self.today_focus_minutes += self.pomodoro_total_time // 60
             self.completed_pomodoros += 1
@@ -872,7 +984,7 @@ class TodoApp:
                 text=f"今日已专注: {self.today_focus_minutes} 分钟   |   完成番茄: {self.completed_pomodoros} 个")
             self.pomodoro_is_break = True
             self.show_notification("🍅 番茄钟结束", "工作完成！休息一下吧。")
-            self.start_pomodoro()  # 自动进入休息
+            self.start_pomodoro()
         else:
             self.pomodoro_is_break = False
             self.show_notification("☕ 休息结束", "精力恢复！开始下一个番茄钟吧。")
@@ -917,23 +1029,11 @@ class TodoApp:
         self.daily_menu.add_separator()
         self.daily_menu.add_command(label="❌ 删除任务", command=self.delete_task)
 
-        self.imp_menu = tk.Menu(self.root, tearoff=0, font=(self.FONT, 10))
-        self.imp_menu.add_command(label="✅ 完成 / 🔄 恢复", command=self.toggle_improvement_status)
-        self.imp_menu.add_command(label="✏️ 编辑计划", command=self.edit_improvement_task)
-        self.imp_menu.add_separator()
-        self.imp_menu.add_command(label="❌ 删除计划", command=self.delete_improvement_task)
-
     def show_daily_context_menu(self, event):
         row = self.task_tree.identify_row(event.y)
         if row and row in self.daily_items:
             self.task_tree.selection_set(row)
             self.daily_menu.tk_popup(event.x_root, event.y_root)
-
-    def show_imp_context_menu(self, event):
-        row = self.improvement_tree.identify_row(event.y)
-        if row and row in self.improvement_items:
-            self.improvement_tree.selection_set(row)
-            self.imp_menu.tk_popup(event.x_root, event.y_root)
 
     def on_date_change(self, event=None):
         self.current_date = self.calendar.selection_get()
@@ -958,7 +1058,6 @@ class TodoApp:
         total = not_done + done
         rate = (done / total * 100) if total > 0 else 0
         high_pri = sum(1 for t in data.get("not_done", []) if t.startswith("🔴"))
-
         msg = (
             f"📅 日期: {self.current_date_cn()}\n"
             f"{'─' * 25}\n"
@@ -976,8 +1075,7 @@ class TodoApp:
         if self._status_after_id:
             self.root.after_cancel(self._status_after_id)
         self._status_after_id = self.root.after(
-            3000, lambda: self.status_label.config(
-                text=f"当前日期: {self.current_date.strftime('%Y-%m-%d')}"))
+            3000, lambda: self.status_label.config(text=f"当前日期: {self.current_date.strftime('%Y-%m-%d')}"))
 
     def current_date_cn(self):
         d = self.current_date
@@ -990,6 +1088,7 @@ class TodoApp:
     def on_close(self):
         self.save_tasks()
         self.save_improvement_tasks()
+        self.save_recurring()
         self.root.destroy()
 
 
