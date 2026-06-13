@@ -825,6 +825,19 @@ class TodoApp:
             self.save_improvement_tasks()
             self.set_status("🗑️ 计划已删除")
 
+    def toggle_plan_done(self, index):
+        if not (0 <= index < len(self.improvement_tasks)):
+            return
+        plan = self.improvement_tasks[index]
+        if plan.get("progress", 0) >= 100:
+            plan["progress"] = 0
+            self.set_status("🔄 计划已恢复为未完成")
+        else:
+            plan["progress"] = 100
+            self.set_status("🎉 长期计划已完成")
+        self.update_improvement_display()
+        self.save_improvement_tasks()
+
     def _pct_color(self, progress):
         if progress >= 100:
             return self.SUCCESS_DK
@@ -890,6 +903,9 @@ class TodoApp:
                    command=lambda i=index: self.delete_improvement_task(i)).pack(side="right", padx=(6, 0))
         ttk.Button(top, text="✏", style="Mini.TButton", width=3,
                    command=lambda i=index: self.edit_improvement_task(i)).pack(side="right")
+        done_style = "Success.TButton" if not done else "Ghost.TButton"
+        ttk.Button(top, text="↩ 恢复" if done else "✓ 完成", style=done_style,
+                   command=lambda i=index: self.toggle_plan_done(i)).pack(side="right", padx=(8, 8))
         pct_label = tk.Label(top, text=f"{progress}%", bg=self.CARD, fg=self._pct_color(progress),
                              font=(self.FONT, 11, "bold"))
         pct_label.pack(side="right", padx=(0, 10))
