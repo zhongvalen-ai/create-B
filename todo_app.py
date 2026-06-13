@@ -397,6 +397,15 @@ class TodoApp:
     def _on_plan_wheel(self, event):
         self.plan_canvas.yview_scroll(int(-event.delta / 120), "units")
 
+    def _config_tree_tags(self, tree):
+        tree.tag_configure('high', foreground=self.DANGER)
+        tree.tag_configure('medium', foreground="#D97706")
+        tree.tag_configure('low', foreground=self.SUCCESS_DK)
+        tree.tag_configure('done', foreground="#94A3B8")
+        tree.tag_configure('empty', foreground="#94A3B8")
+        tree.tag_configure('oddrow', background="#FFFFFF")
+        tree.tag_configure('evenrow', background=self.STRIPE)
+
     # ================= 番茄时钟页 =================
     def create_pomodoro_tab(self):
         page = self.pages["pomodoro"]
