@@ -62,6 +62,7 @@ class TodoApp:
 
         # 长期计划：list[{"text","priority","progress"}]
         self.improvement_tasks = self.load_improvement_tasks()
+        self.show_incomplete_only = False
         # 循环任务规则：list[{"text","priority","freq","weekday"?}]
         self.recurring = self.load_recurring()
 
@@ -371,7 +372,12 @@ class TodoApp:
 
         list_outer, list_card = self._card(body, padx=14, pady=14)
         list_outer.pack(fill="both", expand=True, pady=(16, 0))
-        self._label(list_card, "🚀 计划列表", size=12, bold=True).pack(anchor="w", pady=(0, 10))
+        bar = tk.Frame(list_card, bg=self.CARD)
+        bar.pack(fill="x", pady=(0, 10))
+        self._label(bar, "🚀 计划列表", size=12, bold=True).pack(side="left")
+        self.plan_filter_btn = ttk.Button(bar, text="👁 只看未完成", style="Ghost.TButton",
+                                           command=self.toggle_plan_filter)
+        self.plan_filter_btn.pack(side="right")
 
         # 可滚动区域
         canvas_wrap = tk.Frame(list_card, bg=self.CARD)
@@ -866,6 +872,12 @@ class TodoApp:
         self.improvement_progress["value"] = avg
         self.improvement_prog_label.config(text=f"{avg:.0f}%   ({done}/{len(plans)} 已完成)")
 
+    def toggle_plan_filter(self):
+        self.show_incomplete_only = not self.show_incomplete_only
+        self.plan_filter_btn.config(
+            text="👁 查看全部" if self.show_incomplete_only else "👁 只看未完成")
+        self.update_improvement_display()
+
     def update_improvement_display(self):
         for child in self.plans_inner.winfo_children():
             child.destroy()
@@ -876,8 +888,16 @@ class TodoApp:
             self._update_avg_progress()
             return
 
+        shown = 0
         for i, plan in enumerate(self.improvement_tasks):
+            if self.show_incomplete_only and plan.get("progress", 0) >= 100:
+                continue
             self._build_plan_card(i, plan)
+            shown += 1
+
+        if shown == 0:
+            self._label(self.plans_inner, "所有计划都已完成，太棒了 🎉",
+                        fg="#94A3B8", size=11).pack(pady=30)
         self._update_avg_progress()
 
     def _build_plan_card(self, index, plan):
