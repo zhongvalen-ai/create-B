@@ -210,13 +210,9 @@ class TodoApp:
 
         self.page_container = tk.Frame(content, bg=self.BG)
         self.page_container.pack(fill="both", expand=True)
-        self.page_container.grid_rowconfigure(0, weight=1)
-        self.page_container.grid_columnconfigure(0, weight=1)
 
         for key in ("daily", "improvement", "pomodoro"):
-            frame = tk.Frame(self.page_container, bg=self.BG)
-            frame.grid(row=0, column=0, sticky="nsew")
-            self.pages[key] = frame
+            self.pages[key] = tk.Frame(self.page_container, bg=self.BG)
 
         self.create_daily_tab()
         self.create_improvement_tab()
@@ -240,7 +236,9 @@ class TodoApp:
 
     def show_page(self, key):
         self.active_page = key
-        self.pages[key].tkraise()
+        for f in self.pages.values():
+            f.pack_forget()
+        self.pages[key].pack(fill="both", expand=True)
         for k, btn in self.nav_buttons.items():
             if k == key:
                 btn.config(bg=self.SIDEBAR_ACTIVE, fg="white", font=(self.FONT, 11, "bold"))
